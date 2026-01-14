@@ -5,13 +5,12 @@ import decimal
 import importlib
 import json
 import logging
-import os
 import pathlib
 import pickle
 import re
 import sys
 from collections import deque
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from inspect import isclass
@@ -23,85 +22,27 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import ormsgpack
 from langchain_core.load.load import Reviver
 
+from langgraph.checkpoint.serde import _msgpack as _lg_msgpack
 from langgraph.checkpoint.serde.base import SerializerProtocol
 from langgraph.checkpoint.serde.types import SendProtocol
 from langgraph.store.base import Item
 
+if TYPE_CHECKING:
+    from langgraph.checkpoint.serde._msgpack import (
+        AllowedMsgpackModules,
+    )
+    from langgraph.checkpoint.serde.types import SendProtocol
+
 LC_REVIVER = Reviver()
 EMPTY_BYTES = b""
 logger = logging.getLogger(__name__)
-
-_STRICT_MSGPACK_ENV = "LANGGRAPH_STRICT_MSGPACK"
-_DEFAULT_ALLOWED_MSGPACK = object()
-
-SAFE_MSGPACK_TYPES: frozenset[tuple[str, ...]] = frozenset(
-    {
-        # datetime types
-        ("datetime", "datetime"),
-        ("datetime", "date"),
-        ("datetime", "time"),
-        ("datetime", "timedelta"),
-        ("datetime", "timezone"),
-        # uuid
-        ("uuid", "UUID"),
-        # numeric
-        ("decimal", "Decimal"),
-        # collections
-        ("builtins", "set"),
-        ("builtins", "frozenset"),
-        ("collections", "deque"),
-        # ip addresses
-        ("ipaddress", "IPv4Address"),
-        ("ipaddress", "IPv4Interface"),
-        ("ipaddress", "IPv4Network"),
-        ("ipaddress", "IPv6Address"),
-        ("ipaddress", "IPv6Interface"),
-        ("ipaddress", "IPv6Network"),
-        # pathlib
-        ("pathlib", "Path"),
-        ("pathlib", "PosixPath"),
-        ("pathlib", "WindowsPath"),
-        # pathlib in Python 3.13+
-        ("pathlib._local", "Path"),
-        ("pathlib._local", "PosixPath"),
-        ("pathlib._local", "WindowsPath"),
-        # zoneinfo
-        ("zoneinfo", "ZoneInfo"),
-        # regex
-        ("re", "compile"),
-        # langgraph
-        ("langgraph.types", "Send"),
-        ("langgraph.types", "Interrupt"),
-        ("langgraph.types", "Command"),
-        ("langgraph.types", "StateSnapshot"),
-        ("langgraph.types", "PregelTask"),
-        ("langgraph.types", "Overwrite"),
-        ("langgraph.store.base", "Item"),
-        ("langgraph.store.base", "GetOp"),
-    }
-)
-
-
-AllowedMsgpackModules = Sequence[tuple[str, ...] | type]
-
-
-def _normalize_msgpack_modules(
-    modules: AllowedMsgpackModules,
-) -> set[tuple[str, ...]]:
-    normalized: set[tuple[str, ...]] = set()
-    for module in modules:
-        if isclass(module):
-            normalized.add((module.__module__, module.__name__))
-        else:
-            normalized.add(cast(tuple[str, ...], module))
-    return normalized
 
 
 class JsonPlusSerializer(SerializerProtocol):
@@ -119,31 +60,23 @@ class JsonPlusSerializer(SerializerProtocol):
         self,
         *,
         pickle_fallback: bool = False,
-        allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None = None,
+        allowed_json_modules: Iterable[tuple[str, ...]] | Literal[True] | None = None,
         allowed_msgpack_modules: (
-            AllowedMsgpackModules | Literal[True] | None | object
-        ) = _DEFAULT_ALLOWED_MSGPACK,
+            AllowedMsgpackModules | Literal[True] | None
+        ) = _lg_msgpack._SENTINEL,
         __unpack_ext_hook__: Callable[[int, bytes], Any] | None = None,
     ) -> None:
-        if allowed_msgpack_modules is _DEFAULT_ALLOWED_MSGPACK:
-            if os.getenv(_STRICT_MSGPACK_ENV, "false").lower() in ("1", "true", "yes"):
+        if allowed_msgpack_modules is _lg_msgpack._SENTINEL:
+            if _lg_msgpack.STRICT_MSGPACK_ENABLED:
                 allowed_msgpack_modules = None
             else:
                 allowed_msgpack_modules = True
-        allowed_msgpack_modules = cast(
-            AllowedMsgpackModules | Literal[True] | None, allowed_msgpack_modules
-        )
         self.pickle_fallback = pickle_fallback
         self._allowed_json_modules: set[tuple[str, ...]] | Literal[True] | None = (
-            {mod_and_name for mod_and_name in allowed_json_modules}
-            if allowed_json_modules and allowed_json_modules is not True
-            else (allowed_json_modules if allowed_json_modules is True else None)
+            _normalize_allowlist(allowed_json_modules)
         )
-        self._allowed_msgpack_modules: set[tuple[str, ...]] | Literal[True] | None = (
-            _normalize_msgpack_modules(allowed_msgpack_modules)
-            if allowed_msgpack_modules and allowed_msgpack_modules is not True
-            else (allowed_msgpack_modules if allowed_msgpack_modules is True else None)
-        )
+        self._allowed_msgpack_modules = _normalize_allowlist(allowed_msgpack_modules)
+
         self._custom_unpack_ext_hook = __unpack_ext_hook__ is not None
         self._unpack_ext_hook = (
             __unpack_ext_hook__
@@ -152,15 +85,17 @@ class JsonPlusSerializer(SerializerProtocol):
         )
 
     def with_msgpack_allowlist(
-        self, extra_allowlist: Collection[tuple[str, ...] | type]
+        self, extra_allowlist: Iterable[tuple[str, ...] | type]
     ) -> JsonPlusSerializer:
         """Return a new serializer with a merged msgpack allowlist."""
-        if self._allowed_msgpack_modules in (True, False):
+        base_allowlist = self._allowed_msgpack_modules
+        if base_allowlist is True or base_allowlist is False:
             return self
-        base_allowlist: set[tuple[str, ...]] = set()
-        if self._allowed_msgpack_modules and self._allowed_msgpack_modules is not True:
-            base_allowlist = set(self._allowed_msgpack_modules)
-        merged = base_allowlist | _normalize_msgpack_modules(tuple(extra_allowlist))
+        elif base_allowlist:
+            base_allowlist = set(base_allowlist)
+        else:
+            base_allowlist = set()
+        merged = base_allowlist | _normalize_module_keys(tuple(extra_allowlist))
         allowed_msgpack_modules: AllowedMsgpackModules | Literal[True] | None
         if merged:
             allowed_msgpack_modules = tuple(merged)
@@ -168,16 +103,9 @@ class JsonPlusSerializer(SerializerProtocol):
             allowed_msgpack_modules = tuple(self._allowed_msgpack_modules)
         else:
             allowed_msgpack_modules = self._allowed_msgpack_modules
-
-        allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None
-        if isinstance(self._allowed_json_modules, set):
-            allowed_json_modules = tuple(self._allowed_json_modules)
-        else:
-            allowed_json_modules = self._allowed_json_modules
-
-        return JsonPlusSerializer(
+        return self.__class__(
             pickle_fallback=self.pickle_fallback,
-            allowed_json_modules=allowed_json_modules,
+            allowed_json_modules=self._allowed_json_modules,
             allowed_msgpack_modules=allowed_msgpack_modules,
             __unpack_ext_hook__=(
                 self._unpack_ext_hook if self._custom_unpack_ext_hook else None
@@ -335,80 +263,9 @@ EXT_METHOD_SINGLE_ARG = 3
 EXT_PYDANTIC_V1 = 4
 EXT_PYDANTIC_V2 = 5
 EXT_NUMPY_ARRAY = 6
-EXT_BYTEARRAY = 7
-
-
-class _BytearrayWrapper:
-    __slots__ = ("data",)
-
-    def __init__(self, data: bytes) -> None:
-        self.data = data
-
-
-def _wrap_bytearray(obj: Any) -> Any:
-    if isinstance(obj, bytearray):
-        return _BytearrayWrapper(bytes(obj))
-    if isinstance(obj, dict):
-        changed = False
-        dict_items: list[tuple[Any, Any]] = []
-        for key, value in obj.items():
-            wrapped_key = _wrap_bytearray(key)
-            wrapped_value = _wrap_bytearray(value)
-            if wrapped_key is not key or wrapped_value is not value:
-                changed = True
-            dict_items.append((wrapped_key, wrapped_value))
-        return dict(dict_items) if changed else obj
-    if isinstance(obj, list):
-        changed = False
-        list_items: list[Any] = []
-        for value in obj:
-            wrapped_value = _wrap_bytearray(value)
-            if wrapped_value is not value:
-                changed = True
-            list_items.append(wrapped_value)
-        return list_items if changed else obj
-    if isinstance(obj, tuple):
-        changed = False
-        tuple_items: list[Any] = []
-        for value in obj:
-            wrapped_value = _wrap_bytearray(value)
-            if wrapped_value is not value:
-                changed = True
-            tuple_items.append(wrapped_value)
-        return tuple(tuple_items) if changed else obj
-    if isinstance(obj, set):
-        changed = False
-        set_items: list[Any] = []
-        for value in obj:
-            wrapped_value = _wrap_bytearray(value)
-            if wrapped_value is not value:
-                changed = True
-            set_items.append(wrapped_value)
-        return set(set_items) if changed else obj
-    if isinstance(obj, frozenset):
-        changed = False
-        frozenset_items: list[Any] = []
-        for value in obj:
-            wrapped_value = _wrap_bytearray(value)
-            if wrapped_value is not value:
-                changed = True
-            frozenset_items.append(wrapped_value)
-        return frozenset(frozenset_items) if changed else obj
-    if isinstance(obj, deque):
-        changed = False
-        deque_items: list[Any] = []
-        for value in obj:
-            wrapped_value = _wrap_bytearray(value)
-            if wrapped_value is not value:
-                changed = True
-            deque_items.append(wrapped_value)
-        return deque(deque_items, maxlen=obj.maxlen) if changed else obj
-    return obj
 
 
 def _msgpack_default(obj: Any) -> str | ormsgpack.Ext:
-    if isinstance(obj, _BytearrayWrapper):
-        return ormsgpack.Ext(EXT_BYTEARRAY, obj.data)
     if hasattr(obj, "model_dump") and callable(obj.model_dump):  # pydantic v2
         return ormsgpack.Ext(
             EXT_PYDANTIC_V2,
@@ -652,12 +509,8 @@ def _create_msgpack_ext_hook(
         """Check if type is allowed. Returns True if allowed, False if blocked."""
         key = (module, name)
 
-        if key in SAFE_MSGPACK_TYPES:
+        if key in _lg_msgpack.SAFE_MSGPACK_TYPES:
             return True
-
-        if allowed_modules is not None and allowed_modules is not True:
-            if key in allowed_modules:
-                return True
 
         if allowed_modules is True:
             # default is to warn but allow unregistered types
@@ -671,17 +524,19 @@ def _create_msgpack_ext_hook(
                 name,
             )
             return True
-        else:
-            # strict mode blocks unregistered types
-            logger.warning(
-                "Blocked deserialization of %s.%s - not in allowed_msgpack_modules. "
-                "Add to allowed_msgpack_modules to allow: [(%r, %r)]",
-                module,
-                name,
-                module,
-                name,
-            )
-            return False
+        if allowed_modules is not None:
+            if key in allowed_modules:
+                return True
+        # strict mode blocks unregistered types
+        logger.warning(
+            "Blocked deserialization of %s.%s - not in allowed_msgpack_modules. "
+            "Add to allowed_msgpack_modules to allow: [(%r, %r)]",
+            module,
+            name,
+            module,
+            name,
+        )
+        return False
 
     def ext_hook(code: int, data: bytes) -> Any:
         if code == EXT_CONSTRUCTOR_SINGLE_ARG:
@@ -698,8 +553,6 @@ def _create_msgpack_ext_hook(
                 return getattr(importlib.import_module(tup[0]), tup[1])(tup[2])
             except Exception:
                 return None
-        elif code == EXT_BYTEARRAY:
-            return bytearray(data)
         elif code == EXT_CONSTRUCTOR_POS_ARGS:
             try:
                 tup = ormsgpack.unpackb(
@@ -812,8 +665,6 @@ def _msgpack_ext_hook_to_json(code: int, data: bytes) -> Any:
             return tup[2]
         except Exception:
             return
-    elif code == EXT_BYTEARRAY:
-        return data
     elif code == EXT_CONSTRUCTOR_POS_ARGS:
         try:
             tup = ormsgpack.unpackb(
@@ -908,6 +759,27 @@ _option = (
 
 
 def _msgpack_enc(data: Any) -> bytes:
-    return ormsgpack.packb(
-        _wrap_bytearray(data), default=_msgpack_default, option=_option
-    )
+    return ormsgpack.packb(data, default=_msgpack_default, option=_option)
+
+
+def _normalize_allowlist(
+    allowlist: AllowedMsgpackModules | Literal[True] | None,
+) -> set[tuple[str, ...]] | Literal[True] | None:
+    if allowlist is True:
+        return allowlist
+    elif allowlist:
+        return _normalize_module_keys(allowlist)
+    else:
+        return None
+
+
+def _normalize_module_keys(
+    modules: AllowedMsgpackModules,
+) -> set[tuple[str, ...]]:
+    normalized: set[tuple[str, ...]] = set()
+    for module in modules:
+        if isclass(module):
+            normalized.add((module.__module__, module.__name__))
+        else:
+            normalized.add(cast(tuple[str, ...], module))
+    return normalized

@@ -19,6 +19,8 @@ from pydantic import BaseModel, SecretStr
 from pydantic.v1 import BaseModel as BaseModelV1
 from pydantic.v1 import SecretStr as SecretStrV1
 
+from langgraph.checkpoint.serde import _msgpack as _lg_msgpack
+from langgraph.checkpoint.serde._msgpack import AllowedMsgpackModules
 from langgraph.checkpoint.serde.jsonplus import (
     InvalidModuleError,
     JsonPlusSerializer,
@@ -142,7 +144,7 @@ def test_serde_jsonplus() -> None:
         )
         to_serialize["my_secret_str_v1"] = SecretStrV1("meow")
 
-    allowed_msgpack_modules = [
+    allowed_msgpack_modules: AllowedMsgpackModules = [
         InnerDataclass,
         MyDataclass,
         MyDataclassWSlots,
@@ -154,7 +156,7 @@ def test_serde_jsonplus() -> None:
         (SecretStr.__module__, SecretStr.__name__),
     ]
     if sys.version_info < (3, 14):
-        allowed_msgpack_modules.extend(
+        allowed_msgpack_modules.extend(  # type: ignore
             [
                 (InnerPydanticV1.__module__, InnerPydanticV1.__name__),
                 (MyPydanticV1.__module__, MyPydanticV1.__name__),
@@ -568,12 +570,10 @@ def test_msgpack_safe_types_no_warning(caplog: pytest.LogCaptureFixture) -> None
         assert result is not None
 
 
-def test_msgpack_pydantic_warns_by_default(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_msgpack_pydantic_warns_by_default(caplog: pytest.LogCaptureFixture) -> None:
     """Pydantic models not in allowlist should log warning but still deserialize."""
-
-    monkeypatch.delenv("LANGGRAPH_STRICT_MSGPACK", raising=False)
+    current = _lg_msgpack.STRICT_MSGPACK_ENABLED
+    _lg_msgpack.STRICT_MSGPACK_ENABLED = False
     serde = JsonPlusSerializer()
 
     obj = MyPydantic(foo="test", bar=42, inner=InnerPydantic(hello="world"))
@@ -585,14 +585,15 @@ def test_msgpack_pydantic_warns_by_default(
     assert "unregistered type" in caplog.text.lower()
     assert "allowed_msgpack_modules" in caplog.text
     assert result == obj
+    _lg_msgpack.STRICT_MSGPACK_ENABLED = current
 
 
 def test_msgpack_env_strict_default(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Strict msgpack env should default to blocking unregistered types."""
-
-    monkeypatch.setenv("LANGGRAPH_STRICT_MSGPACK", "1")
+    current = _lg_msgpack.STRICT_MSGPACK_ENABLED
+    _lg_msgpack.STRICT_MSGPACK_ENABLED = True
     serde = JsonPlusSerializer()
 
     obj = MyPydantic(foo="test", bar=42, inner=InnerPydantic(hello="world"))
@@ -603,6 +604,7 @@ def test_msgpack_env_strict_default(
 
     assert "blocked" in caplog.text.lower()
     assert result == obj.model_dump()
+    _lg_msgpack.STRICT_MSGPACK_ENABLED = current
 
 
 def test_msgpack_allowlist_silences_warning(caplog: pytest.LogCaptureFixture) -> None:

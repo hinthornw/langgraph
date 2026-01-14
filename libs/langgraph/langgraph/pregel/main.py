@@ -48,6 +48,7 @@ from langgraph.store.base import BaseStore
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self, Unpack, deprecated, is_typeddict
 
+from langgraph._internal import _serde
 from langgraph._internal._config import (
     ensure_config,
     merge_configs,
@@ -91,10 +92,6 @@ from langgraph._internal._runnable import (
     RunnableLike,
     RunnableSeq,
     coerce_to_runnable,
-)
-from langgraph._internal._serde import (
-    apply_checkpointer_allowlist,
-    strict_msgpack_enabled,
 )
 from langgraph._internal._typing import MISSING, DeprecatedKwargs
 from langgraph.channels.base import BaseChannel
@@ -709,9 +706,9 @@ class Pregel(
     def _apply_checkpointer_allowlist(
         self, checkpointer: BaseCheckpointSaver | None
     ) -> BaseCheckpointSaver | None:
-        if not strict_msgpack_enabled():
+        if not _serde.STRICT_MSGPACK_ENABLED:
             return checkpointer
-        return apply_checkpointer_allowlist(checkpointer, self._serde_allowlist)
+        return _serde.apply_checkpointer_allowlist(checkpointer, self._serde_allowlist)
 
     def get_graph(
         self, config: RunnableConfig | None = None, *, xray: int | bool = False

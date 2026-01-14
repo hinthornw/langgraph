@@ -29,6 +29,7 @@ from langgraph.store.base import BaseStore
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import NotRequired, Required, Self, Unpack, is_typeddict
 
+from langgraph._internal import _serde
 from langgraph._internal._constants import (
     INTERRUPT,
     NS_END,
@@ -42,11 +43,6 @@ from langgraph._internal._fields import (
 )
 from langgraph._internal._pydantic import create_model
 from langgraph._internal._runnable import coerce_to_runnable
-from langgraph._internal._serde import (
-    apply_checkpointer_allowlist,
-    build_serde_allowlist,
-    strict_msgpack_enabled,
-)
 from langgraph._internal._typing import EMPTY_SEQ, MISSING, DeprecatedKwargs
 from langgraph.channels.base import BaseChannel
 from langgraph.channels.binop import BinaryOperatorAggregate
@@ -861,7 +857,7 @@ class StateGraph(Generic[StateT, ContextT, InputT, OutputT]):
         """
         checkpointer = ensure_valid_checkpointer(checkpointer)
         serde_allowlist: set[tuple[str, ...]] | None = None
-        if strict_msgpack_enabled():
+        if _serde.STRICT_MSGPACK_ENABLED:
             schema_types: list[type[Any]] = [
                 self.state_schema,
                 self.input_schema,
@@ -875,11 +871,13 @@ class StateGraph(Generic[StateT, ContextT, InputT, OutputT]):
                 for branch in branches.values():
                     if branch.input_schema is not None:
                         schema_types.append(branch.input_schema)
-            serde_allowlist = build_serde_allowlist(
+            serde_allowlist = _serde.build_serde_allowlist(
                 schemas=schema_types,
                 channels=self.channels,
             )
-            checkpointer = apply_checkpointer_allowlist(checkpointer, serde_allowlist)
+            checkpointer = _serde.apply_checkpointer_allowlist(
+                checkpointer, serde_allowlist
+            )
 
         # assign default values
         interrupt_before = interrupt_before or []

@@ -12,7 +12,6 @@ from typing_extensions import NotRequired, Required, TypedDict
 from langgraph._internal._serde import (
     collect_allowlist_from_schemas,
     curated_core_allowlist,
-    strict_msgpack_enabled,
 )
 
 
@@ -76,22 +75,6 @@ class DummyChannel:
     @property
     def UpdateType(self) -> type[InnerModel]:
         return InnerModel
-
-
-def _clear_strict_cache() -> None:
-    cache_clear = getattr(strict_msgpack_enabled, "cache_clear", None)
-    if cache_clear is not None:
-        cache_clear()
-
-
-def test_strict_msgpack_enabled_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LANGGRAPH_STRICT_MSGPACK", "true")
-    _clear_strict_cache()
-    assert strict_msgpack_enabled() is True
-
-    monkeypatch.setenv("LANGGRAPH_STRICT_MSGPACK", "false")
-    _clear_strict_cache()
-    assert strict_msgpack_enabled() is False
 
 
 def test_curated_core_allowlist_includes_messages() -> None:

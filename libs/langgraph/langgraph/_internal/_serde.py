@@ -1,29 +1,36 @@
 from __future__ import annotations
 
 import dataclasses
-import functools
 import logging
-import os
 import sys
 import types
 from collections import deque
 from enum import Enum
-from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from langchain_core import messages as lc_messages
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import BaseModel
 from typing_extensions import NotRequired, Required, is_typeddict
 
-_STRICT_MSGPACK_ENV = "LANGGRAPH_STRICT_MSGPACK"
+try:
+    from langgraph.checkpoint.serde._msgpack import (  # noqa: F401
+        STRICT_MSGPACK_ENABLED,
+    )
+except ImportError:
+    STRICT_MSGPACK_ENABLED = False
+
 _warned_allowlist_unsupported = False
 
 logger = logging.getLogger(__name__)
-
-
-@functools.lru_cache(maxsize=1)
-def strict_msgpack_enabled() -> bool:
-    return os.getenv(_STRICT_MSGPACK_ENV, "false").lower() in ("1", "true", "yes")
 
 
 def _supports_checkpointer_allowlist() -> bool:
@@ -36,7 +43,7 @@ _SUPPORTS_ALLOWLIST = _supports_checkpointer_allowlist()
 def apply_checkpointer_allowlist(
     checkpointer: Any, allowlist: set[tuple[str, ...]] | None
 ) -> Any:
-    if not checkpointer or allowlist is None:
+    if not checkpointer or allowlist is None or checkpointer in (True, False):
         return checkpointer
     if not _SUPPORTS_ALLOWLIST:
         global _warned_allowlist_unsupported

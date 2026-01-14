@@ -20,12 +20,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 from typing_extensions import Unpack
 
+from langgraph._internal import _serde
 from langgraph._internal._constants import CACHE_NS_WRITES, PREVIOUS
-from langgraph._internal._serde import (
-    apply_checkpointer_allowlist,
-    build_serde_allowlist,
-    strict_msgpack_enabled,
-)
 from langgraph._internal._typing import MISSING, DeprecatedKwargs
 from langgraph.channels.ephemeral_value import EphemeralValue
 from langgraph.channels.last_value import LastValue
@@ -566,14 +562,14 @@ class entrypoint(Generic[ContextT]):
             retry_policy=self.retry_policy or (),
             context_schema=self.context_schema,
         )
-        if strict_msgpack_enabled():
-            serde_allowlist = build_serde_allowlist(
+        if _serde.STRICT_MSGPACK_ENABLED:
+            serde_allowlist = _serde.build_serde_allowlist(
                 schemas=[input_type, output_type, save_type]
                 + ([self.context_schema] if self.context_schema is not None else []),
                 channels=graph.channels,
             )
             graph._serde_allowlist = serde_allowlist
-            graph.checkpointer = apply_checkpointer_allowlist(
+            graph.checkpointer = _serde.apply_checkpointer_allowlist(
                 graph.checkpointer, serde_allowlist
             )
         return graph
