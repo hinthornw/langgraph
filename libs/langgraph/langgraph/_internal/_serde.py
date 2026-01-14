@@ -8,7 +8,7 @@ import sys
 import types
 from collections import deque
 from enum import Enum
-from typing import Annotated, Any, Literal, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from langchain_core import messages as lc_messages
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -77,6 +77,20 @@ def curated_core_allowlist() -> set[tuple[str, ...]]:
     return allowlist
 
 
+def build_serde_allowlist(
+    *,
+    schemas: list[type[Any]] | None = None,
+    channels: dict[str, Any] | None = None,
+) -> set[tuple[str, ...]]:
+    allowlist = curated_core_allowlist()
+    if schemas:
+        schemas = [schema for schema in schemas if schema is not None]
+    return allowlist | collect_allowlist_from_schemas(
+        schemas=schemas,
+        channels=channels,
+    )
+
+
 def collect_allowlist_from_schemas(
     *,
     schemas: list[type[Any]] | None = None,
@@ -123,6 +137,10 @@ def _collect_from_type(
         return
 
     origin = get_origin(typ)
+    if origin is Union:
+        for arg in get_args(typ):
+            _collect_from_type(arg, allowlist, seen, seen_ids)
+        return
     if origin is Annotated or origin in (Required, NotRequired):
         args = get_args(typ)
         if args:

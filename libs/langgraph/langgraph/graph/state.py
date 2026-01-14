@@ -24,7 +24,7 @@ from typing import (
 
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.cache.base import BaseCache
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
+from langgraph.checkpoint.base import Checkpoint
 from langgraph.store.base import BaseStore
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import NotRequired, Required, Self, Unpack, is_typeddict
@@ -44,8 +44,7 @@ from langgraph._internal._pydantic import create_model
 from langgraph._internal._runnable import coerce_to_runnable
 from langgraph._internal._serde import (
     apply_checkpointer_allowlist,
-    collect_allowlist_from_schemas,
-    curated_core_allowlist,
+    build_serde_allowlist,
     strict_msgpack_enabled,
 )
 from langgraph._internal._typing import EMPTY_SEQ, MISSING, DeprecatedKwargs
@@ -876,14 +875,11 @@ class StateGraph(Generic[StateT, ContextT, InputT, OutputT]):
                 for branch in branches.values():
                     if branch.input_schema is not None:
                         schema_types.append(branch.input_schema)
-            serde_allowlist = curated_core_allowlist() | collect_allowlist_from_schemas(
+            serde_allowlist = build_serde_allowlist(
                 schemas=schema_types,
                 channels=self.channels,
             )
-            if isinstance(checkpointer, BaseCheckpointSaver):
-                checkpointer = apply_checkpointer_allowlist(
-                    checkpointer, serde_allowlist
-                )
+            checkpointer = apply_checkpointer_allowlist(checkpointer, serde_allowlist)
 
         # assign default values
         interrupt_before = interrupt_before or []

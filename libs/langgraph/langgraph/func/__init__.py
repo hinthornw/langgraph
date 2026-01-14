@@ -23,8 +23,7 @@ from typing_extensions import Unpack
 from langgraph._internal._constants import CACHE_NS_WRITES, PREVIOUS
 from langgraph._internal._serde import (
     apply_checkpointer_allowlist,
-    collect_allowlist_from_schemas,
-    curated_core_allowlist,
+    build_serde_allowlist,
     strict_msgpack_enabled,
 )
 from langgraph._internal._typing import MISSING, DeprecatedKwargs
@@ -568,14 +567,13 @@ class entrypoint(Generic[ContextT]):
             context_schema=self.context_schema,
         )
         if strict_msgpack_enabled():
-            serde_allowlist = curated_core_allowlist() | collect_allowlist_from_schemas(
+            serde_allowlist = build_serde_allowlist(
                 schemas=[input_type, output_type, save_type]
                 + ([self.context_schema] if self.context_schema is not None else []),
                 channels=graph.channels,
             )
             graph._serde_allowlist = serde_allowlist
-            if isinstance(graph.checkpointer, BaseCheckpointSaver):
-                graph.checkpointer = apply_checkpointer_allowlist(
-                    graph.checkpointer, serde_allowlist
-                )
+            graph.checkpointer = apply_checkpointer_allowlist(
+                graph.checkpointer, serde_allowlist
+            )
         return graph

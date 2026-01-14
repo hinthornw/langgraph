@@ -709,14 +709,9 @@ class Pregel(
     def _apply_checkpointer_allowlist(
         self, checkpointer: BaseCheckpointSaver | None
     ) -> BaseCheckpointSaver | None:
-        if not checkpointer:
-            return checkpointer
         if not strict_msgpack_enabled():
             return checkpointer
-        allowlist = self._serde_allowlist
-        if allowlist is None:
-            return checkpointer
-        return apply_checkpointer_allowlist(checkpointer, allowlist)
+        return apply_checkpointer_allowlist(checkpointer, self._serde_allowlist)
 
     def get_graph(
         self, config: RunnableConfig | None = None, *, xray: int | bool = False
