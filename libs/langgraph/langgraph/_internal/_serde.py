@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import logging
 import os
 import sys
 import types
@@ -10,15 +11,43 @@ from enum import Enum
 from typing import Annotated, Any, Literal, get_args, get_origin, get_type_hints
 
 from langchain_core import messages as lc_messages
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import BaseModel
 from typing_extensions import NotRequired, Required, is_typeddict
 
 _STRICT_MSGPACK_ENV = "LANGGRAPH_STRICT_MSGPACK"
+_warned_allowlist_unsupported = False
+
+logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
 def strict_msgpack_enabled() -> bool:
     return os.getenv(_STRICT_MSGPACK_ENV, "false").lower() in ("1", "true", "yes")
+
+
+def _supports_checkpointer_allowlist() -> bool:
+    return hasattr(BaseCheckpointSaver, "with_allowlist")
+
+
+_SUPPORTS_ALLOWLIST = _supports_checkpointer_allowlist()
+
+
+def apply_checkpointer_allowlist(
+    checkpointer: Any, allowlist: set[tuple[str, ...]] | None
+) -> Any:
+    if not checkpointer or allowlist is None:
+        return checkpointer
+    if not _SUPPORTS_ALLOWLIST:
+        global _warned_allowlist_unsupported
+        if not _warned_allowlist_unsupported:
+            logger.warning(
+                "Checkpointer does not support with_allowlist; strict msgpack "
+                "allowlist will be skipped."
+            )
+            _warned_allowlist_unsupported = True
+        return checkpointer
+    return checkpointer.with_allowlist(allowlist)
 
 
 def curated_core_allowlist() -> set[tuple[str, ...]]:

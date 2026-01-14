@@ -92,7 +92,10 @@ from langgraph._internal._runnable import (
     RunnableSeq,
     coerce_to_runnable,
 )
-from langgraph._internal._serde import strict_msgpack_enabled
+from langgraph._internal._serde import (
+    apply_checkpointer_allowlist,
+    strict_msgpack_enabled,
+)
 from langgraph._internal._typing import MISSING, DeprecatedKwargs
 from langgraph.channels.base import BaseChannel
 from langgraph.channels.topic import Topic
@@ -713,7 +716,7 @@ class Pregel(
         allowlist = self._serde_allowlist
         if allowlist is None:
             return checkpointer
-        return checkpointer.with_allowlist(allowlist)
+        return apply_checkpointer_allowlist(checkpointer, allowlist)
 
     def get_graph(
         self, config: RunnableConfig | None = None, *, xray: int | bool = False

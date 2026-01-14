@@ -43,6 +43,7 @@ from langgraph._internal._fields import (
 from langgraph._internal._pydantic import create_model
 from langgraph._internal._runnable import coerce_to_runnable
 from langgraph._internal._serde import (
+    apply_checkpointer_allowlist,
     collect_allowlist_from_schemas,
     curated_core_allowlist,
     strict_msgpack_enabled,
@@ -880,7 +881,9 @@ class StateGraph(Generic[StateT, ContextT, InputT, OutputT]):
                 channels=self.channels,
             )
             if isinstance(checkpointer, BaseCheckpointSaver):
-                checkpointer = checkpointer.with_allowlist(serde_allowlist)
+                checkpointer = apply_checkpointer_allowlist(
+                    checkpointer, serde_allowlist
+                )
 
         # assign default values
         interrupt_before = interrupt_before or []

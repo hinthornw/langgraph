@@ -5,6 +5,7 @@ import decimal
 import importlib
 import json
 import logging
+import os
 import pathlib
 import pickle
 import re
@@ -22,7 +23,7 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -36,6 +37,9 @@ from langgraph.store.base import Item
 LC_REVIVER = Reviver()
 EMPTY_BYTES = b""
 logger = logging.getLogger(__name__)
+
+_STRICT_MSGPACK_ENV = "LANGGRAPH_STRICT_MSGPACK"
+_DEFAULT_ALLOWED_MSGPACK = object()
 
 SAFE_MSGPACK_TYPES: frozenset[tuple[str, ...]] = frozenset(
     {
@@ -68,6 +72,8 @@ SAFE_MSGPACK_TYPES: frozenset[tuple[str, ...]] = frozenset(
         ("pathlib._local", "Path"),
         ("pathlib._local", "PosixPath"),
         ("pathlib._local", "WindowsPath"),
+        # zoneinfo
+        ("zoneinfo", "ZoneInfo"),
         # regex
         ("re", "compile"),
         # langgraph
@@ -76,6 +82,8 @@ SAFE_MSGPACK_TYPES: frozenset[tuple[str, ...]] = frozenset(
         ("langgraph.types", "Command"),
         ("langgraph.types", "StateSnapshot"),
         ("langgraph.types", "PregelTask"),
+        ("langgraph.store.base", "Item"),
+        ("langgraph.store.base", "GetOp"),
     }
 )
 
@@ -97,10 +105,18 @@ class JsonPlusSerializer(SerializerProtocol):
         pickle_fallback: bool = False,
         allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None = None,
         allowed_msgpack_modules: (
-            Sequence[tuple[str, ...]] | Literal[True] | None
-        ) = True,
+            Sequence[tuple[str, ...]] | Literal[True] | None | object
+        ) = _DEFAULT_ALLOWED_MSGPACK,
         __unpack_ext_hook__: Callable[[int, bytes], Any] | None = None,
     ) -> None:
+        if allowed_msgpack_modules is _DEFAULT_ALLOWED_MSGPACK:
+            if os.getenv(_STRICT_MSGPACK_ENV, "false").lower() in ("1", "true", "yes"):
+                allowed_msgpack_modules = None
+            else:
+                allowed_msgpack_modules = True
+        allowed_msgpack_modules = cast(
+            Sequence[tuple[str, ...]] | Literal[True] | None, allowed_msgpack_modules
+        )
         self.pickle_fallback = pickle_fallback
         self._allowed_json_modules: set[tuple[str, ...]] | Literal[True] | None = (
             {mod_and_name for mod_and_name in allowed_json_modules}
@@ -303,9 +319,80 @@ EXT_METHOD_SINGLE_ARG = 3
 EXT_PYDANTIC_V1 = 4
 EXT_PYDANTIC_V2 = 5
 EXT_NUMPY_ARRAY = 6
+EXT_BYTEARRAY = 7
+
+
+class _BytearrayWrapper:
+    __slots__ = ("data",)
+
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+
+
+def _wrap_bytearray(obj: Any) -> Any:
+    if isinstance(obj, bytearray):
+        return _BytearrayWrapper(bytes(obj))
+    if isinstance(obj, dict):
+        changed = False
+        items: list[tuple[Any, Any]] = []
+        for key, value in obj.items():
+            wrapped_key = _wrap_bytearray(key)
+            wrapped_value = _wrap_bytearray(value)
+            if wrapped_key is not key or wrapped_value is not value:
+                changed = True
+            items.append((wrapped_key, wrapped_value))
+        return dict(items) if changed else obj
+    if isinstance(obj, list):
+        changed = False
+        items: list[Any] = []
+        for value in obj:
+            wrapped_value = _wrap_bytearray(value)
+            if wrapped_value is not value:
+                changed = True
+            items.append(wrapped_value)
+        return items if changed else obj
+    if isinstance(obj, tuple):
+        changed = False
+        items: list[Any] = []
+        for value in obj:
+            wrapped_value = _wrap_bytearray(value)
+            if wrapped_value is not value:
+                changed = True
+            items.append(wrapped_value)
+        return tuple(items) if changed else obj
+    if isinstance(obj, set):
+        changed = False
+        items: list[Any] = []
+        for value in obj:
+            wrapped_value = _wrap_bytearray(value)
+            if wrapped_value is not value:
+                changed = True
+            items.append(wrapped_value)
+        return set(items) if changed else obj
+    if isinstance(obj, frozenset):
+        changed = False
+        items: list[Any] = []
+        for value in obj:
+            wrapped_value = _wrap_bytearray(value)
+            if wrapped_value is not value:
+                changed = True
+            items.append(wrapped_value)
+        return frozenset(items) if changed else obj
+    if isinstance(obj, deque):
+        changed = False
+        items: list[Any] = []
+        for value in obj:
+            wrapped_value = _wrap_bytearray(value)
+            if wrapped_value is not value:
+                changed = True
+            items.append(wrapped_value)
+        return deque(items, maxlen=obj.maxlen) if changed else obj
+    return obj
 
 
 def _msgpack_default(obj: Any) -> str | ormsgpack.Ext:
+    if isinstance(obj, _BytearrayWrapper):
+        return ormsgpack.Ext(EXT_BYTEARRAY, obj.data)
     if hasattr(obj, "model_dump") and callable(obj.model_dump):  # pydantic v2
         return ormsgpack.Ext(
             EXT_PYDANTIC_V2,
@@ -595,6 +682,8 @@ def _create_msgpack_ext_hook(
                 return getattr(importlib.import_module(tup[0]), tup[1])(tup[2])
             except Exception:
                 return None
+        elif code == EXT_BYTEARRAY:
+            return bytearray(data)
         elif code == EXT_CONSTRUCTOR_POS_ARGS:
             try:
                 tup = ormsgpack.unpackb(
@@ -707,6 +796,8 @@ def _msgpack_ext_hook_to_json(code: int, data: bytes) -> Any:
             return tup[2]
         except Exception:
             return
+    elif code == EXT_BYTEARRAY:
+        return data
     elif code == EXT_CONSTRUCTOR_POS_ARGS:
         try:
             tup = ormsgpack.unpackb(
@@ -801,4 +892,6 @@ _option = (
 
 
 def _msgpack_enc(data: Any) -> bytes:
-    return ormsgpack.packb(data, default=_msgpack_default, option=_option)
+    return ormsgpack.packb(
+        _wrap_bytearray(data), default=_msgpack_default, option=_option
+    )

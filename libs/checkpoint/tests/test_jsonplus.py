@@ -142,7 +142,19 @@ def test_serde_jsonplus() -> None:
         )
         to_serialize["my_secret_str_v1"] = SecretStrV1("meow")
 
-    serde = JsonPlusSerializer()
+    serde = JsonPlusSerializer(
+        allowed_msgpack_modules=[
+            MyPydanticV1,
+            SecretStrV1,
+            Person,
+            InnerDataclass,
+            MyPydantic,
+            MyDataclass,
+            MyDataclassWSlots,
+            InnerPydantic,
+            InnerPydanticV1,
+        ]
+    )
 
     dumped = serde.dumps_typed(to_serialize)
 
@@ -548,9 +560,12 @@ def test_msgpack_safe_types_no_warning(caplog: pytest.LogCaptureFixture) -> None
         assert result is not None
 
 
-def test_msgpack_pydantic_warns_by_default(caplog: pytest.LogCaptureFixture) -> None:
+def test_msgpack_pydantic_warns_by_default(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Pydantic models not in allowlist should log warning but still deserialize."""
 
+    monkeypatch.delenv("LANGGRAPH_STRICT_MSGPACK", raising=False)
     serde = JsonPlusSerializer()
 
     obj = MyPydantic(foo="test", bar=42, inner=InnerPydantic(hello="world"))
@@ -562,6 +577,24 @@ def test_msgpack_pydantic_warns_by_default(caplog: pytest.LogCaptureFixture) -> 
     assert "unregistered type" in caplog.text.lower()
     assert "allowed_msgpack_modules" in caplog.text
     assert result == obj
+
+
+def test_msgpack_env_strict_default(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Strict msgpack env should default to blocking unregistered types."""
+
+    monkeypatch.setenv("LANGGRAPH_STRICT_MSGPACK", "1")
+    serde = JsonPlusSerializer()
+
+    obj = MyPydantic(foo="test", bar=42, inner=InnerPydantic(hello="world"))
+
+    caplog.clear()
+    dumped = serde.dumps_typed(obj)
+    result = serde.loads_typed(dumped)
+
+    assert "blocked" in caplog.text.lower()
+    assert result == obj.model_dump()
 
 
 def test_msgpack_allowlist_silences_warning(caplog: pytest.LogCaptureFixture) -> None:

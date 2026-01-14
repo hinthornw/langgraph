@@ -22,6 +22,7 @@ from typing_extensions import Unpack
 
 from langgraph._internal._constants import CACHE_NS_WRITES, PREVIOUS
 from langgraph._internal._serde import (
+    apply_checkpointer_allowlist,
     collect_allowlist_from_schemas,
     curated_core_allowlist,
     strict_msgpack_enabled,
@@ -574,5 +575,7 @@ class entrypoint(Generic[ContextT]):
             )
             graph._serde_allowlist = serde_allowlist
             if isinstance(graph.checkpointer, BaseCheckpointSaver):
-                graph.checkpointer = graph.checkpointer.with_allowlist(serde_allowlist)
+                graph.checkpointer = apply_checkpointer_allowlist(
+                    graph.checkpointer, serde_allowlist
+                )
         return graph
