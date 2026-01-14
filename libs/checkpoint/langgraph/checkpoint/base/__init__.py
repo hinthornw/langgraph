@@ -379,191 +379,22 @@ class BaseCheckpointSaver(Generic[V]):
     def with_allowlist(
         self, extra_allowlist: Collection[tuple[str, ...]]
     ) -> BaseCheckpointSaver[V]:
-        """Return a proxy checkpointer with a derived msgpack allowlist."""
-        return _AllowlistCheckpointSaver(self, extra_allowlist)
-
-
-class _AllowlistCheckpointSaver(BaseCheckpointSaver[V]):
-    __slots__ = ("_inner", "_extra_allowlist")
-
-    def __init__(
-        self,
-        inner: BaseCheckpointSaver[V],
-        extra_allowlist: Sequence[tuple[str, ...]],
-    ) -> None:
-        self._inner = inner
-        self._extra_allowlist = frozenset(extra_allowlist)
-        serde = _with_msgpack_allowlist(inner.serde, self._extra_allowlist)
-        super().__init__(serde=serde)
-
-    def __getattr__(self, name: str) -> Any:
-        attr = getattr(self._inner, name)
-        func = getattr(attr, "__func__", None)
-        if func is not None:
-            return func.__get__(self, type(self._inner))
-        return attr
-
-    @property
-    def config_specs(self) -> list:
-        return self._inner.config_specs
-
-    def with_allowlist(
-        self, extra_allowlist: Collection[tuple[str, ...]]
-    ) -> BaseCheckpointSaver[V]:
-        if frozenset(extra_allowlist) == self._extra_allowlist:
+        """Return a shallow clone with a derived msgpack allowlist."""
+        serde = _with_msgpack_allowlist(self.serde, extra_allowlist)
+        if serde is self.serde:
             return self
-        return self._inner.with_allowlist(extra_allowlist)
-
-    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
-        return self._inner.get_tuple.__func__(self, config)  # type: ignore[attr-defined]
-
-    def list(
-        self,
-        config: RunnableConfig | None,
-        *,
-        filter: dict[str, Any] | None = None,
-        before: RunnableConfig | None = None,
-        limit: int | None = None,
-    ) -> Iterator[CheckpointTuple]:
-        return self._inner.list.__func__(  # type: ignore[attr-defined]
-            self, config, filter=filter, before=before, limit=limit
-        )
-
-    def put(
-        self,
-        config: RunnableConfig,
-        checkpoint: Checkpoint,
-        metadata: CheckpointMetadata,
-        new_versions: ChannelVersions,
-    ) -> RunnableConfig:
-        return self._inner.put.__func__(  # type: ignore[attr-defined]
-            self, config, checkpoint, metadata, new_versions
-        )
-
-    def put_writes(
-        self,
-        config: RunnableConfig,
-        writes: Sequence[tuple[str, Any]],
-        task_id: str,
-        task_path: str = "",
-    ) -> None:
-        return self._inner.put_writes.__func__(  # type: ignore[attr-defined]
-            self, config, writes, task_id, task_path
-        )
-
-    def delete_thread(
-        self,
-        thread_id: str,
-    ) -> None:
-        return self._inner.delete_thread.__func__(self, thread_id)  # type: ignore[attr-defined]
-
-    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
-        return await self._inner.aget_tuple.__func__(  # type: ignore[attr-defined]
-            self, config
-        )
-
-    async def alist(
-        self,
-        config: RunnableConfig | None,
-        *,
-        filter: dict[str, Any] | None = None,
-        before: RunnableConfig | None = None,
-        limit: int | None = None,
-    ) -> AsyncIterator[CheckpointTuple]:
-        return self._inner.alist.__func__(  # type: ignore[attr-defined]
-            self, config, filter=filter, before=before, limit=limit
-        )
-
-    async def aput(
-        self,
-        config: RunnableConfig,
-        checkpoint: Checkpoint,
-        metadata: CheckpointMetadata,
-        new_versions: ChannelVersions,
-    ) -> RunnableConfig:
-        return await self._inner.aput.__func__(  # type: ignore[attr-defined]
-            self, config, checkpoint, metadata, new_versions
-        )
-
-    async def aput_writes(
-        self,
-        config: RunnableConfig,
-        writes: Sequence[tuple[str, Any]],
-        task_id: str,
-        task_path: str = "",
-    ) -> None:
-        return await self._inner.aput_writes.__func__(  # type: ignore[attr-defined]
-            self, config, writes, task_id, task_path
-        )
-
-    async def adelete_thread(
-        self,
-        thread_id: str,
-    ) -> None:
-        return await self._inner.adelete_thread.__func__(  # type: ignore[attr-defined]
-            self, thread_id
-        )
-
-    def get_next_version(self, current: V | None, channel: None) -> V:
-        return self._inner.get_next_version.__func__(  # type: ignore[attr-defined]
-            self, current, channel
-        )
-
-    def __enter__(self) -> _AllowlistCheckpointSaver[V]:
-        enter = getattr(self._inner, "__enter__", None)
-        if enter is not None:
-            func = getattr(enter, "__func__", None)
-            if func is not None:
-                func.__get__(self, type(self._inner))()
-            else:
-                enter()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: Any,
-    ) -> bool | None:
-        exit_ = getattr(self._inner, "__exit__", None)
-        if exit_ is not None:
-            func = getattr(exit_, "__func__", None)
-            if func is not None:
-                return func.__get__(self, type(self._inner))(
-                    exc_type, exc_value, traceback
-                )
-            return exit_(exc_type, exc_value, traceback)
-        return None
-
-    async def __aenter__(self) -> _AllowlistCheckpointSaver[V]:
-        enter = getattr(self._inner, "__aenter__", None)
-        if enter is not None:
-            func = getattr(enter, "__func__", None)
-            if func is not None:
-                await func.__get__(self, type(self._inner))()
-            else:
-                await enter()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: Any,
-    ) -> bool | None:
-        exit_ = getattr(self._inner, "__aexit__", None)
-        if exit_ is not None:
-            func = getattr(exit_, "__func__", None)
-            if func is not None:
-                return await func.__get__(self, type(self._inner))(
-                    exc_type, exc_value, traceback
-                )
-            return await exit_(exc_type, exc_value, traceback)
-        return None
+        clone = object.__new__(self.__class__)
+        if hasattr(self, "__dict__"):
+            clone.__dict__ = self.__dict__.copy()
+        else:
+            for name in getattr(self, "__slots__", ()):
+                setattr(clone, name, getattr(self, name))
+        clone.serde = maybe_add_typed_methods(serde)
+        return clone
 
 
 def _with_msgpack_allowlist(
-    serde: SerializerProtocol, extra_allowlist: Sequence[tuple[str, ...]]
+    serde: SerializerProtocol, extra_allowlist: Collection[tuple[str, ...]]
 ) -> SerializerProtocol:
     if isinstance(serde, JsonPlusSerializer):
         return serde.with_msgpack_allowlist(extra_allowlist)

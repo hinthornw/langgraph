@@ -10,7 +10,7 @@ import pickle
 import re
 import sys
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from inspect import isclass
@@ -120,23 +120,32 @@ class JsonPlusSerializer(SerializerProtocol):
         )
 
     def with_msgpack_allowlist(
-        self, extra_allowlist: Sequence[tuple[str, ...]] | set[tuple[str, ...]]
+        self, extra_allowlist: Collection[tuple[str, ...]]
     ) -> JsonPlusSerializer:
-        """Return a new serializer with additional classes to allow."""
+        """Return a new serializer with a merged msgpack allowlist."""
         if self._allowed_msgpack_modules in (True, False):
-            # already accept all.
             return self
         base_allowlist: set[tuple[str, ...]] = set()
         if self._allowed_msgpack_modules and self._allowed_msgpack_modules is not True:
             base_allowlist = set(self._allowed_msgpack_modules)
         merged = base_allowlist | set(extra_allowlist)
-        allowed_msgpack_modules: Sequence[tuple[str, ...]] | Literal[True] | None = (
-            merged if merged else self._allowed_msgpack_modules
-        )
+        allowed_msgpack_modules: Sequence[tuple[str, ...]] | Literal[True] | None
+        if merged:
+            allowed_msgpack_modules = tuple(merged)
+        elif isinstance(self._allowed_msgpack_modules, set):
+            allowed_msgpack_modules = tuple(self._allowed_msgpack_modules)
+        else:
+            allowed_msgpack_modules = self._allowed_msgpack_modules
+
+        allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None
+        if isinstance(self._allowed_json_modules, set):
+            allowed_json_modules = tuple(self._allowed_json_modules)
+        else:
+            allowed_json_modules = self._allowed_json_modules
 
         return JsonPlusSerializer(
             pickle_fallback=self.pickle_fallback,
-            allowed_json_modules=self._allowed_json_modules,
+            allowed_json_modules=allowed_json_modules,
             allowed_msgpack_modules=allowed_msgpack_modules,
             __unpack_ext_hook__=(
                 self._unpack_ext_hook if self._custom_unpack_ext_hook else None

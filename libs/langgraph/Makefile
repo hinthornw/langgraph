@@ -87,8 +87,8 @@ integration_tests:
 
 WORKERS ?= auto
 XDIST_ARGS := $(if $(WORKERS),-n $(WORKERS) --dist worksteal,)
-MAXFAIL ?=
-MAXFAIL_ARGS := $(if $(MAXFAIL),--maxfail $(MAXFAIL),)
+MAXFAIL ?= 1
+MAXFAIL_ARGS = $(if $(MAXFAIL),--maxfail $(MAXFAIL),)
 # Add an '-x' if xdist is enabled
 XDIST_ARGS := $(if $(WORKERS),-x $(XDIST_ARGS),)
 
