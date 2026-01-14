@@ -24,7 +24,7 @@ from typing import (
 
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.cache.base import BaseCache
-from langgraph.checkpoint.base import Checkpoint
+from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
 from langgraph.store.base import BaseStore
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import NotRequired, Required, Self, Unpack, is_typeddict
@@ -42,6 +42,11 @@ from langgraph._internal._fields import (
 )
 from langgraph._internal._pydantic import create_model
 from langgraph._internal._runnable import coerce_to_runnable
+from langgraph._internal._serde import (
+    collect_allowlist_from_schemas,
+    curated_core_allowlist,
+    strict_msgpack_enabled,
+)
 from langgraph._internal._typing import EMPTY_SEQ, MISSING, DeprecatedKwargs
 from langgraph.channels.base import BaseChannel
 from langgraph.channels.binop import BinaryOperatorAggregate
@@ -855,6 +860,27 @@ class StateGraph(Generic[StateT, ContextT, InputT, OutputT]):
             CompiledStateGraph: The compiled `StateGraph`.
         """
         checkpointer = ensure_valid_checkpointer(checkpointer)
+        serde_allowlist: set[tuple[str, ...]] | None = None
+        if strict_msgpack_enabled():
+            schema_types: list[type[Any]] = [
+                self.state_schema,
+                self.input_schema,
+                self.output_schema,
+            ]
+            if self.context_schema is not None:
+                schema_types.append(self.context_schema)
+            for node in self.nodes.values():
+                schema_types.append(node.input_schema)
+            for branches in self.branches.values():
+                for branch in branches.values():
+                    if branch.input_schema is not None:
+                        schema_types.append(branch.input_schema)
+            serde_allowlist = curated_core_allowlist() | collect_allowlist_from_schemas(
+                schemas=schema_types,
+                channels=self.channels,
+            )
+            if isinstance(checkpointer, BaseCheckpointSaver):
+                checkpointer = checkpointer.with_allowlist(serde_allowlist)
 
         # assign default values
         interrupt_before = interrupt_before or []
@@ -911,6 +937,7 @@ class StateGraph(Generic[StateT, ContextT, InputT, OutputT]):
             cache=cache,
             name=name or "LangGraph",
         )
+        compiled._serde_allowlist = serde_allowlist
 
         compiled.attach_node(START, None)
         for key, node in self.nodes.items():

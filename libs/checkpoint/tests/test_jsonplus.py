@@ -549,9 +549,7 @@ def test_msgpack_safe_types_no_warning(caplog: pytest.LogCaptureFixture) -> None
 
 
 def test_msgpack_pydantic_warns_by_default(caplog: pytest.LogCaptureFixture) -> None:
-    """Pydantic models not in allowlist should log warning but still deserialize.
-
-    TODO: We'll want to change this to block unregistered types in the future."""
+    """Pydantic models not in allowlist should log warning but still deserialize."""
 
     serde = JsonPlusSerializer()
 
@@ -587,9 +585,7 @@ def test_msgpack_allowlist_silences_warning(caplog: pytest.LogCaptureFixture) ->
 
 
 def test_msgpack_none_blocks_unregistered(caplog: pytest.LogCaptureFixture) -> None:
-    """allowed_msgpack_modules=None should block unregistered types.
-
-    TODO: This will be the default behavior in the future."""
+    """allowed_msgpack_modules=None should block unregistered types."""
 
     serde = JsonPlusSerializer(allowed_msgpack_modules=None)
 
@@ -600,7 +596,8 @@ def test_msgpack_none_blocks_unregistered(caplog: pytest.LogCaptureFixture) -> N
     result = serde.loads_typed(dumped)
 
     assert "blocked" in caplog.text.lower()
-    assert result is None
+    expected = obj.model_dump()
+    assert result == expected
 
 
 def test_msgpack_allowlist_blocks_non_listed(
@@ -619,7 +616,9 @@ def test_msgpack_allowlist_blocks_non_listed(
     result = serde.loads_typed(dumped)
 
     assert "blocked" in caplog.text.lower()
-    assert result is None
+    expected = obj.model_dump()
+    # It's not allowed, so we just leave it as a dict
+    assert result == expected
 
 
 def test_msgpack_strict_allows_safe_types(

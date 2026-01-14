@@ -96,29 +96,51 @@ class JsonPlusSerializer(SerializerProtocol):
         *,
         pickle_fallback: bool = False,
         allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None = None,
-        # TODO: change default to None once users have had time to configure allowlists
-        allowed_msgpack_modules: Sequence[tuple[str, ...]]
-        | Literal[True]
-        | None = True,
+        allowed_msgpack_modules: (
+            Sequence[tuple[str, ...]] | Literal[True] | None
+        ) = True,
         __unpack_ext_hook__: Callable[[int, bytes], Any] | None = None,
     ) -> None:
         self.pickle_fallback = pickle_fallback
-        # JSON allowlist
         self._allowed_json_modules: set[tuple[str, ...]] | Literal[True] | None = (
             {mod_and_name for mod_and_name in allowed_json_modules}
             if allowed_json_modules and allowed_json_modules is not True
             else (allowed_json_modules if allowed_json_modules is True else None)
         )
-        # Msgpack allowlist
         self._allowed_msgpack_modules: set[tuple[str, ...]] | Literal[True] | None = (
             {mod_and_name for mod_and_name in allowed_msgpack_modules}
             if allowed_msgpack_modules and allowed_msgpack_modules is not True
             else (allowed_msgpack_modules if allowed_msgpack_modules is True else None)
         )
+        self._custom_unpack_ext_hook = __unpack_ext_hook__ is not None
         self._unpack_ext_hook = (
             __unpack_ext_hook__
             if __unpack_ext_hook__ is not None
             else _create_msgpack_ext_hook(self._allowed_msgpack_modules)
+        )
+
+    def with_msgpack_allowlist(
+        self, extra_allowlist: Sequence[tuple[str, ...]] | set[tuple[str, ...]]
+    ) -> JsonPlusSerializer:
+        """Return a new serializer with additional classes to allow."""
+        if self._allowed_msgpack_modules in (True, False):
+            # already accept all.
+            return self
+        base_allowlist: set[tuple[str, ...]] = set()
+        if self._allowed_msgpack_modules and self._allowed_msgpack_modules is not True:
+            base_allowlist = set(self._allowed_msgpack_modules)
+        merged = base_allowlist | set(extra_allowlist)
+        allowed_msgpack_modules: Sequence[tuple[str, ...]] | Literal[True] | None = (
+            merged if merged else self._allowed_msgpack_modules
+        )
+
+        return JsonPlusSerializer(
+            pickle_fallback=self.pickle_fallback,
+            allowed_json_modules=self._allowed_json_modules,
+            allowed_msgpack_modules=allowed_msgpack_modules,
+            __unpack_ext_hook__=(
+                self._unpack_ext_hook if self._custom_unpack_ext_hook else None
+            ),
         )
 
     def _encode_constructor_args(
@@ -556,7 +578,10 @@ def _create_msgpack_ext_hook(
                     data, ext_hook=ext_hook, option=ormsgpack.OPT_NON_STR_KEYS
                 )
                 if not _check_allowed(tup[0], tup[1]):
-                    return None
+                    # We default to returning the raw data. If the user
+                    # is using this in the context of a pydantic state, etc., then
+                    # it would be validated upon construction.
+                    return tup[2]
                 # module, name, arg
                 return getattr(importlib.import_module(tup[0]), tup[1])(tup[2])
             except Exception:
@@ -567,7 +592,7 @@ def _create_msgpack_ext_hook(
                     data, ext_hook=ext_hook, option=ormsgpack.OPT_NON_STR_KEYS
                 )
                 if not _check_allowed(tup[0], tup[1]):
-                    return None
+                    return tup[2]
                 # module, name, args
                 return getattr(importlib.import_module(tup[0]), tup[1])(*tup[2])
             except Exception:
@@ -578,7 +603,7 @@ def _create_msgpack_ext_hook(
                     data, ext_hook=ext_hook, option=ormsgpack.OPT_NON_STR_KEYS
                 )
                 if not _check_allowed(tup[0], tup[1]):
-                    return None
+                    return tup[2]
                 # module, name, kwargs
                 return getattr(importlib.import_module(tup[0]), tup[1])(**tup[2])
             except Exception:
@@ -589,7 +614,7 @@ def _create_msgpack_ext_hook(
                     data, ext_hook=ext_hook, option=ormsgpack.OPT_NON_STR_KEYS
                 )
                 if not _check_allowed(tup[0], tup[1]):
-                    return None
+                    return tup[2]
                 # module, name, arg, method
                 return getattr(
                     getattr(importlib.import_module(tup[0]), tup[1]), tup[3]
@@ -602,7 +627,7 @@ def _create_msgpack_ext_hook(
                     data, ext_hook=ext_hook, option=ormsgpack.OPT_NON_STR_KEYS
                 )
                 if not _check_allowed(tup[0], tup[1]):
-                    return None
+                    return tup[2]
                 # module, name, kwargs
                 cls = getattr(importlib.import_module(tup[0]), tup[1])
                 try:
@@ -622,7 +647,7 @@ def _create_msgpack_ext_hook(
                     data, ext_hook=ext_hook, option=ormsgpack.OPT_NON_STR_KEYS
                 )
                 if not _check_allowed(tup[0], tup[1]):
-                    return None
+                    return tup[2]
                 # module, name, kwargs, method
                 cls = getattr(importlib.import_module(tup[0]), tup[1])
                 try:
@@ -652,6 +677,7 @@ def _create_msgpack_ext_hook(
     return ext_hook
 
 
+# Aliasing in case anyone imported it directly
 _msgpack_ext_hook = _create_msgpack_ext_hook(allowed_modules=None)
 
 

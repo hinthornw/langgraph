@@ -279,4 +279,32 @@ def test_memory_saver_strict_blocks_unregistered(
 
     assert result is not None
     assert "blocked" in caplog.text.lower()
-    assert result.checkpoint["channel_values"]["foo"] is None
+    expected = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+    assert result.checkpoint["channel_values"]["foo"] == expected
+
+
+def test_memory_saver_with_allowlist_proxy_isolated() -> None:
+    serde = JsonPlusSerializer(allowed_msgpack_modules=None)
+    memory_saver = InMemorySaver(serde=serde)
+    proxy = memory_saver.with_allowlist([("tests.test_memory", "MemoryPydantic")])
+
+    obj = MemoryPydantic(foo="bar")
+
+    checkpoint = empty_checkpoint()
+    checkpoint["channel_values"] = {"foo": obj}
+    checkpoint["channel_versions"] = {"foo": 1}
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "thread-1", "checkpoint_ns": ""}
+    }
+
+    new_config = proxy.put(config, checkpoint, {}, {"foo": 1})
+
+    proxied = proxy.get_tuple(new_config)
+    assert proxied is not None
+    assert proxied.checkpoint["channel_values"]["foo"] == obj
+
+    direct = memory_saver.get_tuple(new_config)
+    assert direct is not None
+    expected = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+    assert direct.checkpoint["channel_values"]["foo"] == expected

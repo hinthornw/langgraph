@@ -92,6 +92,7 @@ from langgraph._internal._runnable import (
     RunnableSeq,
     coerce_to_runnable,
 )
+from langgraph._internal._serde import strict_msgpack_enabled
 from langgraph._internal._typing import MISSING, DeprecatedKwargs
 from langgraph.channels.base import BaseChannel
 from langgraph.channels.topic import Topic
@@ -698,8 +699,21 @@ class Pregel(
         self.config = config
         self.trigger_to_nodes = trigger_to_nodes or {}
         self.name = name
+        self._serde_allowlist: set[tuple[str, ...]] | None = None
         if auto_validate:
             self.validate()
+
+    def _apply_checkpointer_allowlist(
+        self, checkpointer: BaseCheckpointSaver | None
+    ) -> BaseCheckpointSaver | None:
+        if not checkpointer:
+            return checkpointer
+        if not strict_msgpack_enabled():
+            return checkpointer
+        allowlist = self._serde_allowlist
+        if allowlist is None:
+            return checkpointer
+        return checkpointer.with_allowlist(allowlist)
 
     def get_graph(
         self, config: RunnableConfig | None = None, *, xray: int | bool = False
@@ -1239,6 +1253,8 @@ class Pregel(
         checkpointer: BaseCheckpointSaver | None = ensure_config(config)[CONF].get(
             CONFIG_KEY_CHECKPOINTER, self.checkpointer
         )
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if not checkpointer:
             raise ValueError("No checkpointer set")
 
@@ -1281,6 +1297,8 @@ class Pregel(
         checkpointer: BaseCheckpointSaver | None = ensure_config(config)[CONF].get(
             CONFIG_KEY_CHECKPOINTER, self.checkpointer
         )
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if not checkpointer:
             raise ValueError("No checkpointer set")
 
@@ -1329,6 +1347,8 @@ class Pregel(
         checkpointer: BaseCheckpointSaver | None = config[CONF].get(
             CONFIG_KEY_CHECKPOINTER, self.checkpointer
         )
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if not checkpointer:
             raise ValueError("No checkpointer set")
 
@@ -1380,6 +1400,8 @@ class Pregel(
         checkpointer: BaseCheckpointSaver | None = ensure_config(config)[CONF].get(
             CONFIG_KEY_CHECKPOINTER, self.checkpointer
         )
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if not checkpointer:
             raise ValueError("No checkpointer set")
 
@@ -1446,6 +1468,8 @@ class Pregel(
         checkpointer: BaseCheckpointSaver | None = ensure_config(config)[CONF].get(
             CONFIG_KEY_CHECKPOINTER, self.checkpointer
         )
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if not checkpointer:
             raise ValueError("No checkpointer set")
 
@@ -1890,6 +1914,8 @@ class Pregel(
         checkpointer: BaseCheckpointSaver | None = ensure_config(config)[CONF].get(
             CONFIG_KEY_CHECKPOINTER, self.checkpointer
         )
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if not checkpointer:
             raise ValueError("No checkpointer set")
 
@@ -2378,6 +2404,8 @@ class Pregel(
             raise RuntimeError("checkpointer=True cannot be used for root graphs.")
         else:
             checkpointer = self.checkpointer
+        if isinstance(checkpointer, BaseCheckpointSaver):
+            checkpointer = self._apply_checkpointer_allowlist(checkpointer)
         if checkpointer and not config.get(CONF):
             raise ValueError(
                 "Checkpointer requires one or more of the following 'configurable' "

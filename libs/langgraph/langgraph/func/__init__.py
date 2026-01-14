@@ -21,6 +21,11 @@ from langgraph.store.base import BaseStore
 from typing_extensions import Unpack
 
 from langgraph._internal._constants import CACHE_NS_WRITES, PREVIOUS
+from langgraph._internal._serde import (
+    collect_allowlist_from_schemas,
+    curated_core_allowlist,
+    strict_msgpack_enabled,
+)
 from langgraph._internal._typing import MISSING, DeprecatedKwargs
 from langgraph.channels.ephemeral_value import EphemeralValue
 from langgraph.channels.last_value import LastValue
@@ -528,7 +533,7 @@ class entrypoint(Generic[ContextT]):
                 else:
                     output_type = save_type = sig.return_annotation
 
-        return Pregel(
+        graph: Pregel[Any, ContextT, Any, Any] = Pregel(
             nodes={
                 func.__name__: PregelNode(
                     bound=bound,
@@ -559,5 +564,15 @@ class entrypoint(Generic[ContextT]):
             cache=self.cache,
             cache_policy=self.cache_policy,
             retry_policy=self.retry_policy or (),
-            context_schema=self.context_schema,  # type: ignore[arg-type]
+            context_schema=self.context_schema,
         )
+        if strict_msgpack_enabled():
+            serde_allowlist = curated_core_allowlist() | collect_allowlist_from_schemas(
+                schemas=[input_type, output_type, save_type]
+                + ([self.context_schema] if self.context_schema is not None else []),
+                channels=graph.channels,
+            )
+            graph._serde_allowlist = serde_allowlist
+            if isinstance(graph.checkpointer, BaseCheckpointSaver):
+                graph.checkpointer = graph.checkpointer.with_allowlist(serde_allowlist)
+        return graph
