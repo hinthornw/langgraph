@@ -95,7 +95,7 @@ XDIST_ARGS := $(if $(WORKERS),-x $(XDIST_ARGS),)
 test_watch:
 	make start-services &&\
 	make start-dev-server &&\
-	uv run ptw . -- --ff -vv $(XDIST_ARGS) $(MAXFAIL_ARGS) $(TEST); \
+	uv run ptw -- --ff -vv $(XDIST_ARGS) $(MAXFAIL_ARGS) $(TEST); \
 	EXIT_CODE=$$?; \
 	make stop-services; \
 	make stop-dev-server; \
