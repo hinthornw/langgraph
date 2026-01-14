@@ -88,6 +88,21 @@ SAFE_MSGPACK_TYPES: frozenset[tuple[str, ...]] = frozenset(
 )
 
 
+AllowedMsgpackModules = Sequence[tuple[str, ...] | type]
+
+
+def _normalize_msgpack_modules(
+    modules: AllowedMsgpackModules,
+) -> set[tuple[str, ...]]:
+    normalized: set[tuple[str, ...]] = set()
+    for module in modules:
+        if isclass(module):
+            normalized.add((module.__module__, module.__name__))
+        else:
+            normalized.add(cast(tuple[str, ...], module))
+    return normalized
+
+
 class JsonPlusSerializer(SerializerProtocol):
     """Serializer that uses ormsgpack, with optional fallbacks.
 
@@ -105,7 +120,7 @@ class JsonPlusSerializer(SerializerProtocol):
         pickle_fallback: bool = False,
         allowed_json_modules: Sequence[tuple[str, ...]] | Literal[True] | None = None,
         allowed_msgpack_modules: (
-            Sequence[tuple[str, ...]] | Literal[True] | None | object
+            AllowedMsgpackModules | Literal[True] | None | object
         ) = _DEFAULT_ALLOWED_MSGPACK,
         __unpack_ext_hook__: Callable[[int, bytes], Any] | None = None,
     ) -> None:
@@ -115,7 +130,7 @@ class JsonPlusSerializer(SerializerProtocol):
             else:
                 allowed_msgpack_modules = True
         allowed_msgpack_modules = cast(
-            Sequence[tuple[str, ...]] | Literal[True] | None, allowed_msgpack_modules
+            AllowedMsgpackModules | Literal[True] | None, allowed_msgpack_modules
         )
         self.pickle_fallback = pickle_fallback
         self._allowed_json_modules: set[tuple[str, ...]] | Literal[True] | None = (
@@ -124,7 +139,7 @@ class JsonPlusSerializer(SerializerProtocol):
             else (allowed_json_modules if allowed_json_modules is True else None)
         )
         self._allowed_msgpack_modules: set[tuple[str, ...]] | Literal[True] | None = (
-            {mod_and_name for mod_and_name in allowed_msgpack_modules}
+            _normalize_msgpack_modules(allowed_msgpack_modules)
             if allowed_msgpack_modules and allowed_msgpack_modules is not True
             else (allowed_msgpack_modules if allowed_msgpack_modules is True else None)
         )
@@ -136,7 +151,7 @@ class JsonPlusSerializer(SerializerProtocol):
         )
 
     def with_msgpack_allowlist(
-        self, extra_allowlist: Collection[tuple[str, ...]]
+        self, extra_allowlist: Collection[tuple[str, ...] | type]
     ) -> JsonPlusSerializer:
         """Return a new serializer with a merged msgpack allowlist."""
         if self._allowed_msgpack_modules in (True, False):
@@ -144,8 +159,8 @@ class JsonPlusSerializer(SerializerProtocol):
         base_allowlist: set[tuple[str, ...]] = set()
         if self._allowed_msgpack_modules and self._allowed_msgpack_modules is not True:
             base_allowlist = set(self._allowed_msgpack_modules)
-        merged = base_allowlist | set(extra_allowlist)
-        allowed_msgpack_modules: Sequence[tuple[str, ...]] | Literal[True] | None
+        merged = base_allowlist | _normalize_msgpack_modules(tuple(extra_allowlist))
+        allowed_msgpack_modules: AllowedMsgpackModules | Literal[True] | None
         if merged:
             allowed_msgpack_modules = tuple(merged)
         elif isinstance(self._allowed_msgpack_modules, set):

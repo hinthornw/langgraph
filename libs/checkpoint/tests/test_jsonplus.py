@@ -143,12 +143,13 @@ def test_serde_jsonplus() -> None:
         to_serialize["my_secret_str_v1"] = SecretStrV1("meow")
 
     allowed_msgpack_modules = [
-        (InnerDataclass.__module__, InnerDataclass.__name__),
-        (MyDataclass.__module__, MyDataclass.__name__),
-        (MyDataclassWSlots.__module__, MyDataclassWSlots.__name__),
-        (MyEnum.__module__, MyEnum.__name__),
-        (InnerPydantic.__module__, InnerPydantic.__name__),
-        (MyPydantic.__module__, MyPydantic.__name__),
+        InnerDataclass,
+        MyDataclass,
+        MyDataclassWSlots,
+        MyEnum,
+        InnerPydantic,
+        MyPydantic,
+        # Testing that it supports both.
         (Person.__module__, Person.__name__),
         (SecretStr.__module__, SecretStr.__name__),
     ]
