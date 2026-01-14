@@ -82,6 +82,7 @@ SAFE_MSGPACK_TYPES: frozenset[tuple[str, ...]] = frozenset(
         ("langgraph.types", "Command"),
         ("langgraph.types", "StateSnapshot"),
         ("langgraph.types", "PregelTask"),
+        ("langgraph.types", "Overwrite"),
         ("langgraph.store.base", "Item"),
         ("langgraph.store.base", "GetOp"),
     }

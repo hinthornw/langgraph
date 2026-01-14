@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NewType
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NewType, Optional, Union
 
 import pytest
 from pydantic import BaseModel
@@ -164,5 +164,13 @@ def test_collect_allowlist_channels() -> None:
 def test_collect_allowlist_pep604_union() -> None:
     schema = InnerDataclass | InnerModel
     allowlist = collect_allowlist_from_schemas(schemas=[schema])
+    assert (InnerDataclass.__module__, InnerDataclass.__name__) in allowlist
+    assert (InnerModel.__module__, InnerModel.__name__) in allowlist
+
+
+def test_collect_allowlist_typing_union_optional() -> None:
+    typing_optional = Optional[InnerDataclass]  # noqa: UP045
+    typing_union = Union[InnerDataclass, InnerModel]  # noqa: UP007
+    allowlist = collect_allowlist_from_schemas(schemas=[typing_optional, typing_union])
     assert (InnerDataclass.__module__, InnerDataclass.__name__) in allowlist
     assert (InnerModel.__module__, InnerModel.__name__) in allowlist
