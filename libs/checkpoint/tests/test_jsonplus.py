@@ -142,19 +142,26 @@ def test_serde_jsonplus() -> None:
         )
         to_serialize["my_secret_str_v1"] = SecretStrV1("meow")
 
-    serde = JsonPlusSerializer(
-        allowed_msgpack_modules=[
-            MyPydanticV1,
-            SecretStrV1,
-            Person,
-            InnerDataclass,
-            MyPydantic,
-            MyDataclass,
-            MyDataclassWSlots,
-            InnerPydantic,
-            InnerPydanticV1,
-        ]
-    )
+    allowed_msgpack_modules = [
+        (InnerDataclass.__module__, InnerDataclass.__name__),
+        (MyDataclass.__module__, MyDataclass.__name__),
+        (MyDataclassWSlots.__module__, MyDataclassWSlots.__name__),
+        (MyEnum.__module__, MyEnum.__name__),
+        (InnerPydantic.__module__, InnerPydantic.__name__),
+        (MyPydantic.__module__, MyPydantic.__name__),
+        (Person.__module__, Person.__name__),
+        (SecretStr.__module__, SecretStr.__name__),
+    ]
+    if sys.version_info < (3, 14):
+        allowed_msgpack_modules.extend(
+            [
+                (InnerPydanticV1.__module__, InnerPydanticV1.__name__),
+                (MyPydanticV1.__module__, MyPydanticV1.__name__),
+                (SecretStrV1.__module__, SecretStrV1.__name__),
+            ]
+        )
+
+    serde = JsonPlusSerializer(allowed_msgpack_modules=allowed_msgpack_modules)
 
     dumped = serde.dumps_typed(to_serialize)
 

@@ -334,59 +334,59 @@ def _wrap_bytearray(obj: Any) -> Any:
         return _BytearrayWrapper(bytes(obj))
     if isinstance(obj, dict):
         changed = False
-        items: list[tuple[Any, Any]] = []
+        dict_items: list[tuple[Any, Any]] = []
         for key, value in obj.items():
             wrapped_key = _wrap_bytearray(key)
             wrapped_value = _wrap_bytearray(value)
             if wrapped_key is not key or wrapped_value is not value:
                 changed = True
-            items.append((wrapped_key, wrapped_value))
-        return dict(items) if changed else obj
+            dict_items.append((wrapped_key, wrapped_value))
+        return dict(dict_items) if changed else obj
     if isinstance(obj, list):
         changed = False
-        items: list[Any] = []
+        list_items: list[Any] = []
         for value in obj:
             wrapped_value = _wrap_bytearray(value)
             if wrapped_value is not value:
                 changed = True
-            items.append(wrapped_value)
-        return items if changed else obj
+            list_items.append(wrapped_value)
+        return list_items if changed else obj
     if isinstance(obj, tuple):
         changed = False
-        items: list[Any] = []
+        tuple_items: list[Any] = []
         for value in obj:
             wrapped_value = _wrap_bytearray(value)
             if wrapped_value is not value:
                 changed = True
-            items.append(wrapped_value)
-        return tuple(items) if changed else obj
+            tuple_items.append(wrapped_value)
+        return tuple(tuple_items) if changed else obj
     if isinstance(obj, set):
         changed = False
-        items: list[Any] = []
+        set_items: list[Any] = []
         for value in obj:
             wrapped_value = _wrap_bytearray(value)
             if wrapped_value is not value:
                 changed = True
-            items.append(wrapped_value)
-        return set(items) if changed else obj
+            set_items.append(wrapped_value)
+        return set(set_items) if changed else obj
     if isinstance(obj, frozenset):
         changed = False
-        items: list[Any] = []
+        frozenset_items: list[Any] = []
         for value in obj:
             wrapped_value = _wrap_bytearray(value)
             if wrapped_value is not value:
                 changed = True
-            items.append(wrapped_value)
-        return frozenset(items) if changed else obj
+            frozenset_items.append(wrapped_value)
+        return frozenset(frozenset_items) if changed else obj
     if isinstance(obj, deque):
         changed = False
-        items: list[Any] = []
+        deque_items: list[Any] = []
         for value in obj:
             wrapped_value = _wrap_bytearray(value)
             if wrapped_value is not value:
                 changed = True
-            items.append(wrapped_value)
-        return deque(items, maxlen=obj.maxlen) if changed else obj
+            deque_items.append(wrapped_value)
+        return deque(deque_items, maxlen=obj.maxlen) if changed else obj
     return obj
 
 
